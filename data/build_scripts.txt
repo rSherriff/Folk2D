@@ -1,0 +1,6 @@
+Windows
+pyinstaller --add-data '.\polyducks_12x12.png;.' --add-data '.\images\*;images' --add-data '.\sounds\*;sounds' -n 'Purge' -w main.py
+
+
+Mac
+pyinstaller --add-data 'polyducks_12x12.png:.' --add-data 'images/*:images' --add-data 'sounds/*:sounds' -n 'Purge' -w main.py
