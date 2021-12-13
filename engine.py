@@ -79,8 +79,7 @@ class Engine:
                 entity.update()
 
     def handle_events(self, context: tcod.context.Context):
-        self.event_handler.handle_events(
-            context, discard_events=self.full_screen_effect.in_effect or self.state == GameState.GAME_OVER)
+        self.event_handler.handle_events(context, discard_events=self.full_screen_effect.in_effect or self.state == GameState.GAME_OVER)
 
     def setup_game(self):
         self.player = Player(self, 7, 4)
@@ -89,8 +88,7 @@ class Engine:
         self.tick_length = 2
 
     def setup_effects(self):
-        self.full_screen_effect = MeltWipeEffect(
-            self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 40)
+        self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 40)
 
     def setup_sections(self):
         self.menu_sections = {}
