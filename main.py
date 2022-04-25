@@ -2,7 +2,7 @@
 import tcod
 
 from application_path import get_app_path
-from engine import Engine
+from game import Game
 
 
 def main() -> None:
@@ -26,7 +26,7 @@ def main() -> None:
     ) as root_context:
 
         root_console = tcod.Console(screen_width, screen_height, order="F")
-        engine = Engine(screen_width, screen_height)
+        engine = Game(screen_width, screen_height)
 
         cycle = 0
         while True:

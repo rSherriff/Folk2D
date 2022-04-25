@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import abc
+
 import json
 import os
 import random
 from enum import Enum, auto
-from threading import Timer
 
 import tcod
-from playsound import playsound
 from pygame import mixer
 from tcod.console import Console
 
@@ -19,19 +19,16 @@ from sections.confirmation import Confirmation
 from sections.intro_section import IntroSection
 from utils.delta_time import DeltaTime
 
-
 class GameState(Enum):
     INTRO = auto()
     MENU = auto()
     IN_GAME = auto()
-    GAME_OVER = auto()
-    COMPLETE = auto()
 
 
-class Engine:
+class Engine(abc.ABC):
     def __init__(self, teminal_width: int, terminal_height: int):
 
-        self.debug_music_disabled = True
+        self.debug_music_disabled = False
 
         mixer.init()
         if not self.debug_music_disabled:
@@ -57,7 +54,7 @@ class Engine:
         self.state = GameState.INTRO
 
         self.font_manager = FontManager()
-        #self.font_manager.add_font("number_font")
+        self.load_fonts()
 
         self.in_stage_music_queue = False
 
@@ -66,12 +63,26 @@ class Engine:
             with open("game_data/game_save.json") as f:
                 self.save_data = json.load(f)
         else:
-            self.save_data = dict()
+            self.create_new_save_data()
 
         with open ( "game_data/levels.json" ) as f:
             data = json.load(f)
 
             self.intro_sections["introSection"].load_splashes(data["intro_splashes"])
+
+            self.load_initial_data(data)
+            
+    @abc.abstractmethod
+    def create_new_save_data(self):
+        pass
+
+    @abc.abstractmethod
+    def load_initial_data(self, data):
+        pass
+
+    @abc.abstractmethod
+    def load_fonts(self):
+        pass
 
     def render(self, root_console: Console) -> None:
         """ Renders the game to console """
@@ -79,7 +90,7 @@ class Engine:
             if section_key not in self.disabled_sections:
                 section_value.render(root_console)
 
-        if self.state == GameState.IN_GAME or self.state == GameState.GAME_OVER:
+        if self.is_in_game():
             for entity in self.entities:
                 root_console.print(entity.x, entity.y,
                                    entity.char, fg=entity.color)
@@ -89,6 +100,8 @@ class Engine:
         else:
             self.full_screen_effect.set_tiles(root_console.tiles_rgb)
 
+        #root_console.print(40, 1, str(self.mouse_location), (255,255,255))
+
     def update(self):
         """ Engine update tick """
         for _, section in self.get_active_sections():
@@ -96,38 +109,33 @@ class Engine:
 
         self.delta_time.update_delta_time()
 
-        if self.state == GameState.IN_GAME:
+        if self.is_in_game():
             self.time_since_last_tick += self.get_delta_time()
 
             self.tick_length -= 0.0002
-            if self.time_since_last_tick > self.tick_length and self.state == GameState.IN_GAME:
+            if self.time_since_last_tick > self.tick_length and self.state == self.is_in_game():
                 self.time_since_last_tick = 0
 
-            for entity in self.entities:
-                entity.update()
+        if self.in_stage_music_queue and not mixer.music.get_busy():
+            self.advance_music_queue()
+
+
+    def late_update(self):
+       for _, section in self.get_active_sections():
+            section.late_update()
+
+    def is_in_game(self):
+        return self.state == GameState.IN_GAME
 
     def handle_events(self, context: tcod.context.Context):
-        self.event_handler.handle_events(context, discard_events=self.full_screen_effect.in_effect or self.state == GameState.GAME_OVER)
-
-    def setup_game(self):
-        self.player = Player(self, 7, 4)
-        self.entities.clear()
-        self.entities.append(self.player)
-        self.tick_length = 2
+        self.event_handler.handle_events(context, discard_events=self.full_screen_effect.in_effect)
 
     def setup_effects(self):
-        self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 40)
+        self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 20)
 
-    def setup_sections(self):
-        self.intro_sections = {}
-        self.intro_sections["introSection"] = IntroSection(self,0,0,self.screen_width, self.screen_height)
-        
-        self.menu_sections = {}
-        self.game_sections = {}
-        self.completion_sections = {}
-
-        self.disabled_sections = ["confirmationDialog", "notificationDialog"]
-        self.solo_ui_section = ""
+    @abc.abstractmethod
+    def setup_sections(self): #move
+        pass
 
     def get_active_sections(self):
         if self.state == GameState.INTRO:
@@ -136,8 +144,6 @@ class Engine:
             return self.menu_sections.items()
         elif self.is_in_game():
             return self.game_sections.items()
-        elif self.state == GameState.COMPLETE:
-            return self.completion_sections.items()
 
     def get_active_ui_sections(self):
         if self.state == GameState.INTRO:
@@ -146,13 +152,14 @@ class Engine:
             return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.menu_sections.items())).items()
         elif self.is_in_game():
             return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.game_sections.items())).items()
-        elif self.state == GameState.COMPLETE:
-            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.completion_sections.items())).items()
+
     def enable_section(self, section):
-        self.disabled_sections.remove(section)
+        if section in self.disabled_sections:
+            self.disabled_sections.remove(section)
 
     def disable_section(self, section):
-        self.disabled_sections.append(section)
+        if section not in self.disabled_sections:
+            self.disabled_sections.append(section)
 
     def close_menu(self):
         self.state = GameState.IN_GAME
@@ -214,15 +221,7 @@ class Engine:
         old_state = self.state
 
         self.state = new_state
-
-    def game_over(self):
-        self.state = GameState.GAME_OVER
-        Timer(3, self.open_menu).start()
-
-    def complete_game(self):
-        self.state = GameState.COMPLETE
-        self.full_screen_effect.start()
-
+   
     def get_delta_time(self):
         return self.delta_time.get_delta_time()
 
@@ -248,6 +247,9 @@ class Engine:
 
     def close_confirmation_dialog(self):
         self.disable_section("confirmationDialog")
+
+    def is_confirmation_dialog_open(self):
+        return "confirmationDialog" not in self.disabled_sections
 
     def open_notification_dialog(self, text):
         self.game_sections["notificationDialog"].setup(text)
