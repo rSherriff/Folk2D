@@ -229,15 +229,7 @@ class Engine(abc.ABC):
         if entity in self.entities:
             self.entities.remove(entity)
 
-    def play_music(self):
-        return
-        playsound(get_app_path() + "/sounds/music.wav", False)
-        self.music_timer = Timer(77, self.play_music)
-        self.music_timer.start()
-
     def quit(self):
-        if self.music_timer.is_alive():
-            self.music_timer.cancel()
         raise SystemExit()
 
     def open_confirmation_dialog(self, text, confirmation_action):
