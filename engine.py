@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+import json
+import os
+import random
 from enum import Enum, auto
 from threading import Timer
 
 import tcod
 from playsound import playsound
+from pygame import mixer
 from tcod.console import Console
 
 from application_path import get_app_path
 from effects.melt_effect import MeltWipeEffect, MeltWipeEffectType
-from entities.player import Player
+from fonts.font_manager import FontManager
 from input_handlers import EventHandler, MainGameEventHandler
+from sections.confirmation import Confirmation
+from sections.intro_section import IntroSection
 from utils.delta_time import DeltaTime
 
 
 class GameState(Enum):
+    INTRO = auto()
     MENU = auto()
     IN_GAME = auto()
     GAME_OVER = auto()
@@ -23,6 +30,14 @@ class GameState(Enum):
 
 class Engine:
     def __init__(self, teminal_width: int, terminal_height: int):
+
+        self.debug_music_disabled = True
+
+        mixer.init()
+        if not self.debug_music_disabled:
+            mixer.music.set_volume(0.5)
+        else:
+             mixer.music.set_volume(0)
 
         self.screen_width = teminal_width
         self.screen_height = terminal_height
@@ -36,14 +51,27 @@ class Engine:
         self.setup_effects()
         self.setup_sections()
 
-        self.music_timer = Timer(77, self.play_music)
-        self.play_music()
-
-        self.entities = []
         self.tick_length = 2
         self.time_since_last_tick = -2
 
-        self.state = GameState.IN_GAME
+        self.state = GameState.INTRO
+
+        self.font_manager = FontManager()
+        #self.font_manager.add_font("number_font")
+
+        self.in_stage_music_queue = False
+
+        self.save_data = None
+        if os.path.isfile("game_data/game_save.json"):
+            with open("game_data/game_save.json") as f:
+                self.save_data = json.load(f)
+        else:
+            self.save_data = dict()
+
+        with open ( "game_data/levels.json" ) as f:
+            data = json.load(f)
+
+            self.intro_sections["introSection"].load_splashes(data["intro_splashes"])
 
     def render(self, root_console: Console) -> None:
         """ Renders the game to console """
@@ -91,6 +119,9 @@ class Engine:
         self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 40)
 
     def setup_sections(self):
+        self.intro_sections = {}
+        self.intro_sections["introSection"] = IntroSection(self,0,0,self.screen_width, self.screen_height)
+        
         self.menu_sections = {}
         self.game_sections = {}
         self.completion_sections = {}
@@ -99,25 +130,24 @@ class Engine:
         self.solo_ui_section = ""
 
     def get_active_sections(self):
-        if self.state == GameState.MENU:
+        if self.state == GameState.INTRO:
+            return self.intro_sections.items()
+        elif self.state == GameState.MENU:
             return self.menu_sections.items()
-        elif self.state == GameState.IN_GAME:
+        elif self.is_in_game():
             return self.game_sections.items()
         elif self.state == GameState.COMPLETE:
             return self.completion_sections.items()
 
     def get_active_ui_sections(self):
-        if self.state == GameState.MENU:
-            return self.menu_sections.items()
-        elif self.state == GameState.IN_GAME:
-            if "confirmationDialog" not in self.disabled_sections:
-                return {"confirmationDialog": self.game_sections["confirmationDialog"]}.items()
-            if "notificationDialog" not in self.disabled_sections:
-                return {"notificationDialog": self.game_sections["notificationDialog"]}.items()
-            return self.game_sections.items()
+        if self.state == GameState.INTRO:
+            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.intro_sections.items())).items()
+        elif self.state == GameState.MENU:
+            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.menu_sections.items())).items()
+        elif self.is_in_game():
+            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.game_sections.items())).items()
         elif self.state == GameState.COMPLETE:
-            return self.completion_sections.items()
-
+            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.completion_sections.items())).items()
     def enable_section(self, section):
         self.disabled_sections.remove(section)
 
@@ -129,9 +159,61 @@ class Engine:
         self.setup_game()
         self.full_screen_effect.start()
 
+    def queue_music(self, stage):
+        music = self.stage_music[stage]["music"]
+        volume = self.stage_music[stage]["music_volume"]
+        if len(music) > 0:
+            random.shuffle(music)
+
+            if not self.debug_music_disabled:
+                mixer.music.set_volume(volume)
+
+            self.current_music_index = 0
+            self.music_queue = music
+            self.advance_music_queue()
+            self.in_stage_music_queue = True
+        
+    def advance_music_queue(self):
+        print("Playing: " + self.music_queue[self.current_music_index])
+        mixer.music.load("sounds/music/" + self.music_queue[self.current_music_index])
+        self.current_music_index += 1
+
+        if self.current_music_index >= len(self.music_queue):
+            self.current_music_index = 0
+
+        self.play_music()
+
+    def play_music(self):
+        mixer.music.play()
+
+    def end_music_queue(self, fadeout_time):
+        mixer.music.fadeout(fadeout_time)
+        self.in_stage_music_queue = False
+
+    def play_music_file(self, file):
+        if not self.in_stage_music_queue and os.path.isfile("sounds/music/" + file):
+            mixer.music.load("sounds/music/" + file)
+            mixer.music.play()
+        else:
+            print("Tried to play music that doesn't exist!  " + file)
+
+    def play_menu_music(self, file=""):
+        if len(file) > 0:
+            self.menu_music = file
+        if os.path.isfile("sounds/music/" + self.menu_music):
+            mixer.music.load("sounds/music/" + self.menu_music)
+            mixer.music.play()
+        else:
+            print("Tried to play music that doesn't exist!  " + self.menu_music)
+
     def open_menu(self):
-        self.state = GameState.MENU
+        self.change_state(GameState.MENU)
         self.full_screen_effect.start()
+
+    def change_state(self, new_state):
+        old_state = self.state
+
+        self.state = new_state
 
     def game_over(self):
         self.state = GameState.GAME_OVER
@@ -176,3 +258,7 @@ class Engine:
 
     def is_ui_paused(self):
         return self.full_screen_effect.in_effect
+
+    def end_intro(self):
+        self.change_state(GameState.MENU)
+        self.full_screen_effect.start()

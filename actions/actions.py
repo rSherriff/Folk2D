@@ -104,3 +104,39 @@ class OpenNotificationDialog(Action):
 class CloseNotificationDialog(Action):
     def perform(self) -> None:
         return self.engine.close_notification_dialog()
+
+class PlayMusicFileAction(Action):
+    def __init__(self, engine, file) -> None:
+        super().__init__(engine)
+        self.file = file
+
+    def perform(self) -> None:
+        self.engine.play_music_file(self.file)
+
+class PlayMenuMusicAction(Action):
+    def __init__(self, engine, file="") -> None:
+        super().__init__(engine)
+        self.file = file
+
+    def perform(self) -> None:
+        self.engine.play_menu_music(self.file)
+
+class IntroEndAction(Action):
+    def perform(self) -> None:
+        self.engine.end_intro()
+
+class QueueMusicAction(Action):
+    def __init__(self, engine, stage) -> None:
+        super().__init__(engine)
+        self.stage = stage
+
+    def perform(self) -> None:
+        self.engine.queue_music(self.stage)
+
+class EndMusicQueueAction(Action):
+    def __init__(self, engine, fadeout_time) -> None:
+        super().__init__(engine)
+        self.fadeout_time = fadeout_time
+
+    def perform(self) -> None:
+        self.engine.end_music_queue( self.fadeout_time)
