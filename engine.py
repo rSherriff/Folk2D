@@ -1,40 +1,44 @@
 from __future__ import annotations
 
 import abc
-
 import json
 import os
 import random
+from collections import OrderedDict
 from enum import Enum, auto
 
 import tcod
 from pygame import mixer
 from tcod.console import Console
 
+from actions.actions import OpenNotificationDialog
 from application_path import get_app_path
 from effects.melt_effect import MeltWipeEffect, MeltWipeEffectType
 from fonts.font_manager import FontManager
 from input_handlers import EventHandler, MainGameEventHandler
 from sections.confirmation import Confirmation
 from sections.intro_section import IntroSection
+from sections.notification import Notification
 from utils.delta_time import DeltaTime
+
 
 class GameState(Enum):
     INTRO = auto()
     MENU = auto()
     IN_GAME = auto()
 
-
 class Engine(abc.ABC):
     def __init__(self, teminal_width: int, terminal_height: int):
 
-        self.debug_music_disabled = False
-
         mixer.init()
-        if not self.debug_music_disabled:
-            mixer.music.set_volume(0.5)
+
+        self.save_data = None
+        if os.path.isfile("game_data/game_save.json"):
+            with open("game_data/game_save.json") as f:
+                self.save_data = json.load(f)
+                self.set_mixer_volume(self.save_data["volume"])
         else:
-             mixer.music.set_volume(0)
+            self.create_new_save_data()
 
         self.screen_width = teminal_width
         self.screen_height = terminal_height
@@ -57,13 +61,7 @@ class Engine(abc.ABC):
         self.load_fonts()
 
         self.in_stage_music_queue = False
-
-        self.save_data = None
-        if os.path.isfile("game_data/game_save.json"):
-            with open("game_data/game_save.json") as f:
-                self.save_data = json.load(f)
-        else:
-            self.create_new_save_data()
+        self.playing_menu_music = False
 
         with open ( "game_data/levels.json" ) as f:
             data = json.load(f)
@@ -72,9 +70,11 @@ class Engine(abc.ABC):
 
             self.load_initial_data(data)
             
-    @abc.abstractmethod
     def create_new_save_data(self):
-        pass
+        self.save_data = dict()
+        self.save_data["fullscreen"] = True
+        self.save_data["volume"] = 0.5
+        self.set_mixer_volume(self.save_data["volume"])
 
     @abc.abstractmethod
     def load_initial_data(self, data):
@@ -89,11 +89,6 @@ class Engine(abc.ABC):
         for section_key, section_value in self.get_active_sections():
             if section_key not in self.disabled_sections:
                 section_value.render(root_console)
-
-        if self.is_in_game():
-            for entity in self.entities:
-                root_console.print(entity.x, entity.y,
-                                   entity.char, fg=entity.color)
 
         if self.full_screen_effect.in_effect == True:
             self.full_screen_effect.render(root_console)
@@ -119,7 +114,6 @@ class Engine(abc.ABC):
         if self.in_stage_music_queue and not mixer.music.get_busy():
             self.advance_music_queue()
 
-
     def late_update(self):
        for _, section in self.get_active_sections():
             section.late_update()
@@ -128,53 +122,63 @@ class Engine(abc.ABC):
         return self.state == GameState.IN_GAME
 
     def handle_events(self, context: tcod.context.Context):
-        self.event_handler.handle_events(context, discard_events=self.full_screen_effect.in_effect)
+        self.event_handler.handle_events(context, discard_events=self.is_ui_paused())
 
     def setup_effects(self):
         self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 20)
 
     @abc.abstractmethod
-    def setup_sections(self): #move
+    def setup_sections(self): 
         pass
 
     def get_active_sections(self):
+        sections = OrderedDict()
         if self.state == GameState.INTRO:
-            return self.intro_sections.items()
+            sections = self.intro_sections
         elif self.state == GameState.MENU:
-            return self.menu_sections.items()
+            sections = self.menu_sections
         elif self.is_in_game():
-            return self.game_sections.items()
+            sections = self.game_sections
+
+        sections |= self.misc_sections
+        return sections.items()
 
     def get_active_ui_sections(self):
+        sections = OrderedDict()
         if self.state == GameState.INTRO:
-            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.intro_sections.items())).items()
+            sections = dict(filter(lambda elem: elem[0] not in self.disabled_ui_sections, self.intro_sections.items()))
         elif self.state == GameState.MENU:
-            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.menu_sections.items())).items()
+            sections =  dict(filter(lambda elem: elem[0] not in self.disabled_ui_sections, self.menu_sections.items()))
         elif self.is_in_game():
-            return dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.game_sections.items())).items()
+            sections =  dict(filter(lambda elem: elem[0] not in self.disabled_ui_sections, self.game_sections.items()))
+
+        sections |= (dict(filter(lambda elem: elem[0] not in self.disabled_ui_sections, self.misc_sections.items())))
+        return sections.items()
 
     def enable_section(self, section):
         if section in self.disabled_sections:
             self.disabled_sections.remove(section)
+            self.enable_ui_section(section)
 
     def disable_section(self, section):
         if section not in self.disabled_sections:
             self.disabled_sections.append(section)
+            self.disable_ui_section(section)
 
-    def close_menu(self):
-        self.state = GameState.IN_GAME
-        self.setup_game()
-        self.full_screen_effect.start()
+    def enable_ui_section(self, section):
+        if section in self.disabled_ui_sections:
+            self.disabled_ui_sections.remove(section)
+
+    def disable_ui_section(self, section):
+        if section not in self.disabled_ui_sections:
+            self.disabled_ui_sections.append(section)
 
     def queue_music(self, stage):
         music = self.stage_music[stage]["music"]
         volume = self.stage_music[stage]["music_volume"]
         if len(music) > 0:
             random.shuffle(music)
-
-            if not self.debug_music_disabled:
-                mixer.music.set_volume(volume)
-
+            mixer.music.set_volume(self.save_data["volume"])
             self.current_music_index = 0
             self.music_queue = music
             self.advance_music_queue()
@@ -213,6 +217,7 @@ class Engine(abc.ABC):
         else:
             print("Tried to play music that doesn't exist!  " + self.menu_music)
 
+
     def open_menu(self):
         self.change_state(GameState.MENU)
         self.full_screen_effect.start()
@@ -225,30 +230,36 @@ class Engine(abc.ABC):
     def get_delta_time(self):
         return self.delta_time.get_delta_time()
 
-    def remove_entity(self, entity):
-        if entity in self.entities:
-            self.entities.remove(entity)
-
     def quit(self):
         raise SystemExit()
 
-    def open_confirmation_dialog(self, text, confirmation_action):
-        self.game_sections["confirmationDialog"].setup(
-            text, confirmation_action)
-        self.enable_section("confirmationDialog")
+    def toggle_fullscreen(self):
+        with open("game_data/game_save.json", "w") as f:
+            self.save_data["fullscreen"] = not self.save_data["fullscreen"]
+            json.dump(self.save_data, f, indent=2)
 
-    def close_confirmation_dialog(self):
+        OpenNotificationDialog(self, "The game must be restarted for this option to take effect.", "Menu").perform()
+            
+    def open_confirmation_dialog(self, text, confirmation_action, section):
+        self.misc_sections["confirmationDialog"].setup(text, confirmation_action, section)
+        self.enable_section("confirmationDialog")
+        self.disable_ui_section(section)
+
+    def close_confirmation_dialog(self, section):
         self.disable_section("confirmationDialog")
+        self.enable_ui_section(section)
 
     def is_confirmation_dialog_open(self):
         return "confirmationDialog" not in self.disabled_sections
 
-    def open_notification_dialog(self, text):
-        self.game_sections["notificationDialog"].setup(text)
+    def open_notification_dialog(self, text, section):
+        self.misc_sections["notificationDialog"].setup(text, section)
         self.enable_section("notificationDialog")
+        self.disable_ui_section(section)
 
-    def close_notification_dialog(self):
+    def close_notification_dialog(self, section):
         self.disable_section("notificationDialog")
+        self.enable_ui_section(section)
 
     def is_ui_paused(self):
         return self.full_screen_effect.in_effect
@@ -256,3 +267,9 @@ class Engine(abc.ABC):
     def end_intro(self):
         self.change_state(GameState.MENU)
         self.full_screen_effect.start()
+
+    def set_mixer_volume(self, volume):
+        mixer.music.set_volume(volume)
+        with open("game_data/game_save.json", "w") as f:
+            self.save_data["volume"] = volume
+            json.dump(self.save_data, f, indent=2)

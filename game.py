@@ -1,11 +1,14 @@
 import json
+from collections import OrderedDict
 from threading import Timer
 
 from pygame import mixer
 
 from engine import Engine, GameState
-from sections.intro_section import IntroSection
 from sections.confirmation import Confirmation
+from sections.intro_section import IntroSection
+from sections.notification import Notification
+
 
 class Game(Engine):
     def __init__(self, teminal_width: int, terminal_height: int):
@@ -21,13 +24,18 @@ class Game(Engine):
         pass
 
     def setup_sections(self):
-        self.intro_sections = {}
+        self.intro_sections = OrderedDict()
         self.intro_sections["introSection"] = IntroSection(self,0,0,self.screen_width, self.screen_height)
 
-        self.menu_sections = {}
+        self.menu_sections = OrderedDict()
 
-        self.game_sections = {}
-        self.game_sections["confirmationDialog"] = Confirmation(self, 7, 9, 36, 10)
+        self.game_sections = OrderedDict()
+        
+        self.misc_sections = OrderedDict()
+        self.misc_sections["notificationDialog"] = Notification(self, 7, 9, 37, 10)
+        self.misc_sections["confirmationDialog"] = Confirmation(self, 7, 9, 37, 10)
 
+        self.completion_sections = OrderedDict()
 
-        self.disabled_sections = ["confirmationDialog"]
+        self.disabled_sections = ["confirmationDialog", "notificationDialog"]
+        self.disabled_ui_sections = ["confirmationDialog", "notificationDialog"]
