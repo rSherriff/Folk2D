@@ -1,4 +1,5 @@
 from __future__ import annotations
+from math import ceil
 
 from threading import Timer
 from typing import TYPE_CHECKING
@@ -21,6 +22,8 @@ class UI:
         self.y = y
         self.section = section
         self.enabled = True
+
+        self.showing_tooltip = False
 
     def render(self, console: Console):
         for element in self.elements:
@@ -57,12 +60,22 @@ class UI:
             
         for element in self.elements:
             if element.is_mouseover(x, y):
-                if element.mouseover == False:
-                    element.on_mouseenter()
-                element.mouseover = True
+                if not isinstance(element, Tooltip):
+                    if element.mouseover == False:
+                        element.on_mouseenter(x,y)
+                    element.mouseover = True
+
+                elif isinstance(element, Tooltip) and not self.showing_tooltip:
+                    self.showing_tooltip = True
+                    if element.mouseover == False:
+                        element.on_mouseenter(x,y)
+                    element.mouseover = True
+
             else:
                 if element.mouseover == True:
                     element.on_mouseleave()
+                    if isinstance(element, Tooltip):
+                        self.showing_tooltip = False
                 element.mouseover = False
 
             element.mousemove(x,y)
@@ -78,6 +91,9 @@ class UI:
     def sort_elements(self):
         self.elements.sort(key = lambda element: element.render_order)
         self.elements.sort(key = lambda element: element.mouseover)
+
+    def clear(self):
+        self.elements.clear()
 
 class UIElement:
     def __init__(self, x, y, width, height):
@@ -95,7 +111,7 @@ class UIElement:
     def on_keydown(self, event: tcod.event.KeyDown):
         pass
 
-    def on_mouseenter(self):
+    def on_mouseenter(self, x: int = 0, y:int = 0):
         pass
 
     def on_mouseleave(self):
@@ -115,40 +131,38 @@ class UIElement:
 
 
 class Button(UIElement):
-    def __init__(self, x: int, y: int, width: int, height: int, click_action: Action, tiles, normal_bg = (255,255,255), highlight_bg = (128,128,128)):
+    def __init__(self, x: int, y: int, width: int, height: int, click_action: Action, h_fg = (128,128,128)):
         super().__init__(x,y,width,height)
         self.click_action = click_action
-        self.tiles = tiles
 
         self.hover_action = None
 
-        self.normal_bg= normal_bg
-        self.highlight_bg = highlight_bg
+        self.highlight_fg = h_fg
+        self.mask = None
 
+    def set_mask(self, mask):
+        self.mask = mask
 
     def render(self, console: Console):
-        if self.tiles is None:
-            return
-
-        temp_console = Console(width=self.width, height=self.height, order="F")
-
+        tiles = console.tiles_rgb
         for h in range(0,self.height):
             for w in range(0, self.width):
-                if self.tiles[w,h][0] != 9488:
+                x = self.x + w
+                y = self.y + h
+                if self.mask is not None and self.mask[h][w] == True:
                     if self.mouseover:
-                        self.tiles[w,h][1] = self.highlight_bg
-                    else:
-                        self.tiles[w,h][1] = self.normal_bg 
+                        tiles[x,y][1] = (255,255,255)
+                        tiles[x,y][2] = self.highlight_fg
+                else:
+                    if self.mouseover:
+                        tiles[x,y][1] = self.highlight_fg
                         
-                temp_console.tiles_rgb[w,h] = self.tiles[w,h]
-
-        temp_console.blit(console, self.x, self.y)
 
     def on_mousedown(self, x: int, y: int):
         if self.click_action is not None:
             self.click_action.perform()
 
-    def on_mouseenter(self):
+    def on_mouseenter(self, x: int = 0, y:int = 0):
         if self.hover_action is not None:
             self.hover_action.perform()
 
@@ -184,13 +198,14 @@ class ShapedButton(Button):
         return False
             
 class Input(UIElement):
-    def __init__(self, x: int, y: int, width: int, height: int):
+    def __init__(self, x: int, y: int, width: int, height: int, action = None):
         super().__init__(x,y,width,height)
         self.selected = False
         self.text = ''
         self.blink_interval = 0.7
         self.bg_color = (0,0,0)
         self.fg_color = (255,255,255)
+        self.return_action = action
 
     def render(self, console: Console):
         temp_console = Console(width=self.width, height=self.height)
@@ -202,7 +217,7 @@ class Input(UIElement):
 
         if self.selected == True:
             if self.blink == True:
-                temp_console.tiles_rgb[0,len(self.text)] = (9488, self.fg_color , self.bg_color)
+                temp_console.tiles_rgb[0,len(self.text)] = (ord('_'), self.fg_color , self.bg_color)
 
         temp_console.blit(console, self.x, self.y)
 
@@ -228,11 +243,18 @@ class Input(UIElement):
 
             if key == tcod.event.K_BACKSPACE:
                 self.text = self.text[:-1]
-            elif key == tcod.event.K_RETURN or key == tcod.event.K_ESCAPE:
+            elif key == tcod.event.K_ESCAPE:
                 self.selected = False
                 self.blink = False
+                self.text =  ""
             elif key == tcod.event.K_SPACE and len(self.text) < self.width - 1:
                 self.text += ' '
+            elif key == tcod.event.K_RETURN or key ==tcod.event.K_RETURN2:
+                if not self.return_action == None:
+                    self.return_action.perform(self.text)
+                self.selected = False
+                self.blink = False
+                self.text =  ""
             elif len(self.text) < self.width - 1 and tcod.event.K_a <= key <= tcod.event.K_z:
                 letter = get_letter_key(key)
                 if keyboard.is_pressed('shift'):
@@ -287,7 +309,7 @@ class HoverTrigger(UIElement):
         self.mouse_enter_action = mouse_enter_action
         self.mouse_leave_action = mouse_leave_action
 
-    def on_mouseenter(self):
+    def on_mouseenter(self, x: int = 0, y:int = 0):
         self.mouse_enter_action.perform()
         
     def on_mouseleave(self):
@@ -297,55 +319,55 @@ class HoverTrigger(UIElement):
         pass
 
 class Tooltip(UIElement):
-    def __init__(self, x: int, y: int, width: int, height:int, x_offset: int, y_offset: int, text: str):
-        super().__init__(x,y,width,height)
+    def __init__(self, x: int, y: int, width: int, height:int, text: str):
+        super().__init__(x,y,width, height)
+
+        self.text = text
+        self.width = width
+        self.height = height
 
         self.visible = False
         self.visibleTimer = 5
 
-        self.render_width = 0
-        self.render_height = 1
-        self.x_offset = x_offset
-        self.y_offset = y_offset
-
-        self.lines = list()
-        self.lines = text.split('\n')
-        self.render_height = len(self.lines) + 2
-        for l in self.lines:
-            self.render_width = max(self.render_width, len(l) + 2)
+        self.render_x = self.x
+        self.render_y = self.y
+        self.render_width = min(len(self.text), 25)
+        self.render_height = ceil(len(self.text) / self.render_width)
+        self.render_width += 2
+        self.render_height += 2
 
         self.render_order = 5
 
-    def on_mouseenter(self):
-        pass
+        self.offset_x = 0
+        self.offset_y = 0
+
+    def on_mouseenter(self, x: int = 0, y:int = 0):
+        self.visible = True
+        self.render_x = x + self.offset_x
+        self.render_y = y + self.offset_y
         
     def on_mouseleave(self):
-        self.visibleTimer = 5
         self.visible = False
         
-
     def on_mousedown(self, x: int, y: int):
         pass
 
-    def render(self, console: Console):
-        if self.mouseover:
-            self.visibleTimer -= 0.17
-        if self.visibleTimer < 0:
-            self.visible = True
-
+    def is_mouseover(self, x,y):
         if self.visible == True:
-            temp_console = Console(width=self.render_width, height=self.render_height, order="F")
+            is_mouseover_trigger = self.x<= x <= self.x + self.render_width - 1 and self.y <= y <= self.y + self.height - 1
+            is_mouseover_render = self.render_x<= x <= self.render_x + self.render_width - 1 and self.render_y <= y <= self.render_y + self.render_height - 1
+            return is_mouseover_trigger or is_mouseover_render
+        else:
+            return super().is_mouseover(x,y)
 
-            for h in range(0,self.render_height):
-                for w in range(0, self.render_width):
-                    temp_console.tiles_rgb[w,h][2] = (255,255,255) 
+    def render(self, console: Console):
+        if self.visible == True:
+            console.draw_frame(x=self.render_x,y=self.render_y,width=self.render_width,height=self.render_height, decoration="╔═╗║ ║╚═╝", bg=(0,0,0), fg=(255,255,255))
+            console.print_box(x=self.render_x+1,y=self.render_y+1,width=self.render_width-2,height=self.render_height-2,string=self.text,alignment=tcod.CENTER, bg=(0,0,0), fg=(255,255,255))
 
-            count = 1
-            for l in self.lines:
-                temp_console.print(1, count, l, (0,0,0))
-                count += 1
-
-            temp_console.blit(console, self.x + self.x_offset, self.y+self.y_offset)
+    def offset(self, x:int = 0,y:int = 0):
+        self.offset_x = x
+        self.offset_y = y
 
 class Toggle(Button):
     def __init__(self, x: int, y: int, width: int, height: int, is_on: bool, on_action: Action, off_action: Action, tiles, on_tiles, off_tiles, response_x:int, response_y:int, normal_bg = (255,255,255), highlight_bg = (128,128,128)):
