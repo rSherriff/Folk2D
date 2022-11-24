@@ -10,14 +10,13 @@ class Effect():
         self.width = width
         self.height = height
         self.in_effect = False
-        self.lifespan = 10
         self.time_alive = 0
         self.tiles_set = False
 
     def render(self, console):
         raise NotImplementedError()
 
-    def start(self):
+    def start(self, parameters=None):
         self.time_alive = 0
         self.tiles_set = False
         self.in_effect = True

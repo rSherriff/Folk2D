@@ -50,8 +50,8 @@ class SoundIntroSplash(IntroSplash):
         self.keep_into_menu = keep_into_menu
 
 class IntroSection(Section):
-    def __init__(self, engine, x: int, y: int, width: int, height: int, xp_filepath: str = "") -> None:
-        super().__init__(engine, x, y, width, height, xp_filepath)
+    def __init__(self, engine, x: int, y: int, width: int, height: int, name:str = "") -> None:
+        super().__init__(engine, x, y, width, height, "", name)
         
         self.splash_list = list()
         self.time_into_splash = 0

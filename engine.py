@@ -27,6 +27,9 @@ class GameState(Enum):
     MENU = auto()
     IN_GAME = auto()
 
+NOTIFICATION_DIALOG = "notificationDialog"
+CONFIRMATION_DIALOG = "confirmationDialog"
+
 class Engine(abc.ABC):
     def __init__(self, teminal_width: int, terminal_height: int):
 
@@ -48,6 +51,8 @@ class Engine(abc.ABC):
 
         self.event_handler: EventHandler = MainGameEventHandler(self)
         self.mouse_location = (0, 0)
+
+        self.sections_disabled_by_dialog = {}
 
         self.setup_effects()
         self.setup_sections()
@@ -90,10 +95,10 @@ class Engine(abc.ABC):
             if section_key not in self.disabled_sections:
                 section_value.render(root_console)
 
-        if self.full_screen_effect.in_effect == True:
+        if self.full_screen_effect != None and self.full_screen_effect.in_effect == True:
             self.full_screen_effect.render(root_console)
         else:
-            self.full_screen_effect.set_tiles(root_console.tiles_rgb)
+            self.last_rendered_frame_tiles = root_console.tiles_rgb
 
         #root_console.print(40, 1, str(self.mouse_location), (255,255,255))
 
@@ -125,7 +130,15 @@ class Engine(abc.ABC):
         self.event_handler.handle_events(context, discard_events=self.is_ui_paused())
 
     def setup_effects(self):
-        self.full_screen_effect = MeltWipeEffect(self, 0, 0, self.screen_width, self.screen_height, MeltWipeEffectType.RANDOM, 20)
+        self.full_screen_effect = None
+
+    def set_full_screen_effect(self, effect, parameters=None):
+        self.full_screen_effect = effect
+        self.full_screen_effect_parameters = parameters
+        self.full_screen_effect.set_tiles(self.last_rendered_frame_tiles)
+
+    def start_full_screen_effect(self):
+        self.full_screen_effect.start(self.full_screen_effect_parameters)
 
     @abc.abstractmethod
     def setup_sections(self): 
@@ -134,11 +147,11 @@ class Engine(abc.ABC):
     def get_active_sections(self):
         sections = OrderedDict()
         if self.state == GameState.INTRO:
-            sections = self.intro_sections
+            sections = dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.intro_sections.items()))
         elif self.state == GameState.MENU:
-            sections = self.menu_sections
+            sections = dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.menu_sections.items()))
         elif self.is_in_game():
-            sections = self.game_sections
+            sections = dict(filter(lambda elem: elem[0] not in self.disabled_sections, self.game_sections.items()))
 
         sections |= self.misc_sections
         return sections.items()
@@ -172,6 +185,21 @@ class Engine(abc.ABC):
     def disable_ui_section(self, section):
         if section not in self.disabled_ui_sections:
             self.disabled_ui_sections.append(section)
+
+    def disable_all_ui_sections(self, sections_to_exclude):
+        sections_disabled = []
+        for section, _ in self.get_active_ui_sections():
+            if section not in sections_to_exclude and section not in self.disabled_ui_sections:
+                self.disable_ui_section(section) 
+                sections_disabled.append(section)
+        return sections_disabled
+
+    def enable_ui_sections(self, sections):
+        for section in sections:
+            self.enable_ui_section(section)
+
+    def is_section_disabled(self, section):
+        return section in self.disabled_sections
 
     def queue_music(self, stage):
         music = self.stage_music[stage]["music"]
@@ -240,33 +268,38 @@ class Engine(abc.ABC):
 
         OpenNotificationDialog(self, "The game must be restarted for this option to take effect.", "Menu").perform()
             
-    def open_confirmation_dialog(self, text, confirmation_action, section):
-        self.misc_sections["confirmationDialog"].setup(text, confirmation_action, section)
-        self.enable_section("confirmationDialog")
-        self.disable_ui_section(section)
+    def open_confirmation_dialog(self, text, confirmation_action, section, enable_ui_on_confirm):
+        self.misc_sections[CONFIRMATION_DIALOG].setup(text, confirmation_action, section, enable_ui_on_confirm)
+        self.enable_section(CONFIRMATION_DIALOG)
+        self.sections_disabled_by_dialog[CONFIRMATION_DIALOG] = self.disable_all_ui_sections([CONFIRMATION_DIALOG])
 
-    def close_confirmation_dialog(self, section):
-        self.disable_section("confirmationDialog")
-        self.enable_ui_section(section)
+    def close_confirmation_dialog(self, section, enable_ui):
+        self.disable_section(CONFIRMATION_DIALOG)
+
+        self.enable_ui_sections(self.sections_disabled_by_dialog[CONFIRMATION_DIALOG])
+        if not enable_ui:
+            self.disable_ui_section(section)
 
     def is_confirmation_dialog_open(self):
-        return "confirmationDialog" not in self.disabled_sections
+        return CONFIRMATION_DIALOG not in self.disabled_sections
 
     def open_notification_dialog(self, text, section):
-        self.misc_sections["notificationDialog"].setup(text, section)
-        self.enable_section("notificationDialog")
-        self.disable_ui_section(section)
+        self.misc_sections[NOTIFICATION_DIALOG].setup(text, section)
+        self.enable_section(NOTIFICATION_DIALOG)
+        self.sections_disabled_by_dialog[NOTIFICATION_DIALOG] = self.disable_all_ui_sections([NOTIFICATION_DIALOG])
 
     def close_notification_dialog(self, section):
-        self.disable_section("notificationDialog")
-        self.enable_ui_section(section)
+        self.disable_section(NOTIFICATION_DIALOG)
+        self.enable_ui_sections(self.sections_disabled_by_dialog[NOTIFICATION_DIALOG])
 
     def is_ui_paused(self):
-        return self.full_screen_effect.in_effect
+        if self.full_screen_effect == None:
+            return False
+        else:   
+            return self.full_screen_effect.in_effect == True
 
     def end_intro(self):
         self.change_state(GameState.MENU)
-        self.full_screen_effect.start()
 
     def set_mixer_volume(self, volume):
         mixer.music.set_volume(volume)

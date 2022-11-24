@@ -12,9 +12,10 @@ from pygame import mixer, sndarray
 
 
 class Section:
-    def __init__(self, engine, x: int, y: int, width: int, height: int, xp_filepath: str = ""):
+    def __init__(self, engine, x: int, y: int, width: int, height: int, xp_filepath: str = "", name: str =""):
         self.engine = engine
 
+        self.name = name
         self.x = x
         self.y = y
         self.width = width
@@ -36,10 +37,13 @@ class Section:
 
     def load_xp_data(self, filepath):
         if filepath:
-            xp_file = gzip.open("images/" + filepath)
-            raw_data = xp_file.read()
-            xp_file.close()
-            return xp_loader.load_xp_string(raw_data)
+            try:
+                xp_file = gzip.open("images/" + filepath)
+                raw_data = xp_file.read()
+                xp_file.close()
+                return xp_loader.load_xp_string(raw_data)
+            except:
+                print(("Loading {0} failed!").format(filepath))
 
     def load_tiles(self, data_name, xp_data):
         if xp_data is not None:
@@ -75,12 +79,13 @@ class Section:
             if self.invisible == False:
                 console.tiles_rgb[self.x : self.x + self.width, self.y: self.y + self.height] = self.tiles["graphic"]
 
-            if self.ui is not None:
-                self.ui.render(console)
-
             for entity in self.entities:
                 if not entity.invisible:
                     console.print(entity.x, entity.y,entity.char, fg=entity.fg_color, bg=entity.bg_color)
+
+    def render_ui(self, console):
+        if not self.ui is None:
+            self.ui.render(console)
 
     def update(self):
         for entity in self.entities:
@@ -89,6 +94,15 @@ class Section:
     def late_update(self):
         for entity in self.entities:
             entity.late_update()
+
+    def refresh(self):
+        pass
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
 
     def mousedown(self,button,x,y):
         pass

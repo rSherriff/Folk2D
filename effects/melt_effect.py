@@ -21,7 +21,7 @@ class MeltWipeEffect(Effect):
         self.col_trigger_times = np.empty(width)
     
         
-    def start(self):
+    def start(self,parameters=None):
         super().start()
         self.current_wipe_heights = np.empty(self.width)
         self.current_wipe_heights.fill(0)

@@ -13,13 +13,13 @@ class VerticalWipeEffect(Effect):
         self.current_wipe_height = 0
         self.speed = 54
         
-    def start(self, direction: VerticalWipeDirection):
+    def start(self, parameters):
         super().start()
-        self.direction = direction
+        self.direction = parameters[0]
         self.current_wipe_height = 0
         
     def render(self, console):
-        if self.time_alive > self.lifespan:
+        if abs(self.current_wipe_height) > self.height:
             self.stop()
         
         if(self.direction == VerticalWipeDirection.DOWN):

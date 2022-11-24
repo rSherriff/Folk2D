@@ -19,7 +19,7 @@ def main() -> None:
     )
 
     load_failed = False
-    window_flags = tcod.context.SDL_WINDOW_FULLSCREEN_DESKTOP
+    window_flags = tcod.context.SDL_WINDOW_RESIZABLE
     if os.path.isfile("game_data/game_save.json"):
         with open("game_data/game_save.json") as f:
             try:
@@ -36,7 +36,7 @@ def main() -> None:
         terminal_width,
         terminal_height,
         tileset=tileset,
-        title="The Farnese Hercules",
+        title="Bookseller",
         vsync=True,
         sdl_window_flags=window_flags
     ) as root_context:

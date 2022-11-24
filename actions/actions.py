@@ -90,23 +90,25 @@ class DisableSection(Action):
 
 
 class OpenConfirmationDialog(Action):
-    def __init__(self, engine, text, confirmation_action, section) -> None:
+    def __init__(self, engine, text, confirmation_action, section, enable_ui_on_confirm=True) -> None:
         super().__init__(engine)
         self.text = text
         self.confirmation_action = confirmation_action
         self.section = section
+        self.enable_ui_on_confirm = enable_ui_on_confirm
 
     def perform(self) -> None:
-        return self.engine.open_confirmation_dialog(self.text, self.confirmation_action, self.section)
+        return self.engine.open_confirmation_dialog(self.text, self.confirmation_action, self.section, self.enable_ui_on_confirm)
 
 
 class CloseConfirmationDialog(Action):
-    def __init__(self, engine, section) -> None:
+    def __init__(self, engine, section, enable_ui=True) -> None:
         super().__init__(engine)
         self.section = section
+        self.enable_ui = enable_ui
 
     def perform(self) -> None:
-        return self.engine.close_confirmation_dialog(self.section)
+        return self.engine.close_confirmation_dialog(self.section, self.enable_ui)
 
 
 class OpenNotificationDialog(Action):
